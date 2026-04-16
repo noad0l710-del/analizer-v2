@@ -61,7 +61,6 @@ st.sidebar.title("CONTROLES")
 ticker_input = st.sidebar.text_input("BUSCAR TICKER", "NVDA").upper()
 period_input = st.sidebar.selectbox("PERIODO DE ANÁLISIS", ["6mo", "1y", "2y", "5y", "max"], index=1)
 
-# Priorizar carga de llaves
 groq_key = st.sidebar.text_input("Groq Key", value=st.secrets.get("GROQ_API_KEY", ""), type="password")
 fred_key = st.sidebar.text_input("FRED Key", value=st.secrets.get("FRED_API_KEY", ""), type="password")
 
@@ -71,7 +70,6 @@ if st.sidebar.button("🚀 ACTUALIZAR TERMINAL"):
         info, df, sector = fetch_data(ticker_input, period_input)
         st.session_state.info, st.session_state.df, st.session_state.sector = info, df, sector
 
-# Inicialización por defecto
 if 'ticker' not in st.session_state:
     st.session_state.ticker = "NVDA"
     info, df, sector = fetch_data("NVDA", "1y")
@@ -81,7 +79,6 @@ if 'ticker' not in st.session_state:
 st.markdown('<div class="title-main">🏛️ TERMINAL ANALIZER V2.0 PRO</div>', unsafe_allow_html=True)
 st.markdown(f"<h3 style='text-align: center; color: #808080;'>Ticker Activo: {st.session_state.ticker}</h3>", unsafe_allow_html=True)
 
-# Métricas de Cabecera
 inf = st.session_state.info
 df = st.session_state.df
 if not df.empty:
@@ -89,7 +86,6 @@ if not df.empty:
     last_p = df['Close'].iloc[-1]
     prev_p = df['Close'].iloc[-2]
     pct = ((last_p - prev_p) / prev_p) * 100
-    
     m1.metric("Precio Actual", f"${last_p:,.2f}", f"{pct:+.2f}%")
     m2.metric("Cap. de Mercado", f"{inf.get('marketCap', 0)/1e12:.2f}T")
     m3.metric("Calidad (ROE)", f"{inf.get('returnOnEquity', 0)*100:.1f}%")
@@ -104,54 +100,69 @@ with tabs[0]: # TÉCNICO
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.7, 0.3])
     fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='Precio'), row=1, col=1)
     fig.add_trace(go.Bar(x=df.index, y=df['Volume'], name='Volumen', marker_color='#4a69bd'), row=2, col=1)
-    fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, height=550, margin=dict(t=10, b=10))
+    fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, height=550)
     st.plotly_chart(fig, use_container_width=True)
 
 with tabs[1]: # TESIS IA
-    st.subheader("💡 Tesis Estructural del Activo")
-    if st.button("GENERAR TESIS PROFESIONAL"):
-        prompt = f"Dame una tesis de inversión para {st.session_state.ticker}. Sector: {st.session_state.sector}. ROE: {inf.get('returnOnEquity')}. Sé directo y profesional."
-        res = get_ai_insight(prompt, groq_key)
-        st.markdown(f'<div class="info-box">{res}</div>', unsafe_allow_html=True)
+    col_a, col_b = st.columns([1.5, 1])
+    with col_a:
+        st.subheader("💡 Tesis Estructural del Activo")
+        if st.button("GENERAR TESIS PROFESIONAL"):
+            prompt = f"Dame una tesis de inversión para {st.session_state.ticker}. Sector: {st.session_state.sector}. ROE: {inf.get('returnOnEquity')}. Sé directo."
+            res = get_ai_insight(prompt, groq_key)
+            st.markdown(f'<div class="info-box">{res}</div>', unsafe_allow_html=True)
+    with col_b:
+        st.subheader("⚖️ Distribución de Riesgo")
+        df_risk = pd.DataFrame({'Cat': ['Equity', 'Cash', 'Fixed Income'], 'Val': [75, 5, 20]})
+        fig_pie = px.pie(df_risk, values='Val', names='Cat', hole=.5, color_discrete_sequence=['#8e44ad', '#2980b9', '#27ae60'])
+        fig_pie.update_layout(template="plotly_dark", showlegend=False)
+        st.plotly_chart(fig_pie, use_container_width=True)
 
 with tabs[2]: # OPORTUNIDADES
     st.subheader("🎯 Oportunidades de Entrada y Crecimiento")
     if st.button("DETECTAR OPORTUNIDADES"):
-        prompt = f"Analiza oportunidades de compra/venta para {st.session_state.ticker} a ${last_p:.2f}. Usa verde para compras y rojo para riesgos."
+        prompt = f"Analiza oportunidades para {st.session_state.ticker} a ${last_p:.2f}."
         res = get_ai_insight(prompt, groq_key)
         st.markdown(f'<div class="info-box">{res}</div>', unsafe_allow_html=True)
 
-with tabs[3]: # COMPETIDORES (CORREGIDO)
+with tabs[3]: # COMPETIDORES
     st.subheader(f"🏁 Benchmarking del Sector: {st.session_state.sector}")
     sector_map = {"Technology": ["AAPL", "MSFT", "GOOGL", "AMD"], "Financial Services": ["JPM", "BAC", "GS"]}
     comps = sector_map.get(st.session_state.sector, ["SPY", "QQQ"])
-    
     comp_list = []
     for c in comps:
         t_comp = yf.Ticker(c)
         c_i = t_comp.info
-        # Corrección: Uso de .history para obtener el precio más seguro
-        h_comp = t_comp.history(period="1d")
-        p_c = h_comp['Close'].iloc[-1] if not h_comp.empty else 0
-        comp_list.append({
-            "Ticker": c,
-            "Precio": f"${p_c:,.2f}",
-            "ROE": f"{c_i.get('returnOnEquity', 0)*100:.1f}%",
-            "Margen": f"{c_i.get('profitMargins', 0)*100:.1f}%"
-        })
+        p_c = t_comp.history(period="1d")['Close'].iloc[-1] if not t_comp.history(period="1d").empty else 0
+        comp_list.append({"Ticker": c, "Precio": f"${p_c:,.2f}", "ROE": f"{c_i.get('returnOnEquity', 0)*100:.1f}%", "Margen": f"{c_i.get('profitMargins', 0)*100:.1f}%"})
     st.table(pd.DataFrame(comp_list))
 
-with tabs[5]: # PAQUETES DE INVERSIÓN REALES
+with tabs[4]: # MACRO (GRÁFICA RESTAURADA)
+    st.subheader("🌐 Indicadores Macroeconomía (FRED)")
+    if fred_key:
+        try:
+            fred = Fred(api_key=fred_key)
+            pib = fred.get_series('GDP').tail(20)
+            fig_macro = px.area(pib, title="Evolución del PIB (USA)", labels={'value': 'Billions of Dollars', 'index': 'Fecha'})
+            fig_macro.update_layout(template="plotly_dark", showlegend=False, height=400)
+            st.plotly_chart(fig_macro, use_container_width=True)
+            if st.button("ANALIZAR IMPACTO MACRO"):
+                res = get_ai_insight(f"El PIB actual es {pib.iloc[-1]}. Impacto en {st.session_state.ticker}", groq_key)
+                st.info(res)
+        except Exception as e: st.error(f"Error FRED: {e}")
+    else: st.warning("Introduce tu FRED API Key en el lateral.")
+
+with tabs[5]: # PAQUETES
     st.subheader("🛒 Adquisición de Paquetes de Activos")
     p1, p2, p3 = st.columns(3)
     with p1:
-        st.markdown('<div class="info-box">**PAQUETE CRECIMIENTO**<br>Enfoque en NVIDIA/Apple<br><span class="gain">+15% Proyectado</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-box">**PAQUETE CRECIMIENTO**<br><span class="gain">+15% Proyectado</span></div>', unsafe_allow_html=True)
         st.button("ADQUIRIR PAQUETE ALFA", use_container_width=True)
     with p2:
-        st.markdown('<div class="info-box">**PAQUETE DIVIDENDOS**<br>Flujo de caja trimestral<br><span class="gain">Yield: 5.2%</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-box">**PAQUETE DIVIDENDOS**<br><span class="gain">Yield: 5.2%</span></div>', unsafe_allow_html=True)
         st.button("ADQUIRIR PAQUETE FLUJO", use_container_width=True)
     with p3:
-        st.markdown('<div class="info-box">**PAQUETE COBERTURA**<br>Protección contra caídas<br><span class="loss">Riesgo Bajo</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-box">**PAQUETE COBERTURA**<br><span class="loss">Riesgo Bajo</span></div>', unsafe_allow_html=True)
         st.button("ADQUIRIR PAQUETE DEFENSIVO", use_container_width=True)
 
 with tabs[6]: # CHAT
@@ -162,8 +173,7 @@ with tabs[6]: # CHAT
         ans = get_ai_insight(f"Sobre {st.session_state.ticker}: {u_msg}", groq_key)
         st.session_state.chat_hist.append((u_msg, ans))
     for q, a in reversed(st.session_state.chat_hist):
-        st.write(f"👤: {q}")
-        st.markdown(f"🤖: {a}", unsafe_allow_html=True)
+        st.write(f"👤: {q}"); st.markdown(f"🤖: {a}", unsafe_allow_html=True)
 
 st.divider()
 st.caption(f"Terminal Analizer V2.0 | Groq Llama 3 | {st.session_state.ticker} Market View")

@@ -89,7 +89,7 @@ def get_ai_analysis(ticker, stock_data, api_key):
         """
         
         completion = client.chat.completions.create(
-            model="llama3-70b-8192", # Usamos el modelo más potente
+            model="llama-3.3-70b-versatile", # Usamos el modelo más potente
             messages=[{"role": "user", "content": prompt}]
         )
         return completion.choices[0].message.content
